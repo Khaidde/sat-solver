@@ -2,8 +2,9 @@ c Sample DIMACS .cnf file
 c holding some information
 c and trying to be some
 c kind of a test.
-p cnf 1200 120
-1 2 0
+p cnf 150 20
+1 -2 0
 -3 4 0
 5 -65 7 0
 -7 -8 -9 0
+-120 0

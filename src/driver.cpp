@@ -95,10 +95,13 @@ Result parse(Problem *problem, cstr input_path) {
   if (clause_count <= 0) panic("Problem must have more than 0 clauses\n");
 
   *problem = init_problem(variable_count, clause_count);
-  printf("CNF Problem: %d variables, %d clauses\n", problem->variable_count, problem->clause_count);
+  printf("CNF Problem: %d variables, %d clauses\n", variable_count, clause_count);
 
-  bool is_empty_clause = true;
-  i32 clause_id        = 0;
+  i32 variable_count_in_clause = 0;
+  i32 one_variable_id;
+  bool one_variable_value;
+  i32 clause_id = 0;
+  debug("clause%d: ", clause_id);
   while (!is_eof(&parser)) {
     char ch = at(&parser);
     assert(!is_whitespace(ch));
@@ -109,30 +112,40 @@ Result parse(Problem *problem, cstr input_path) {
       is_negated = true;
     }
 
+    if (ch == '%') break;
+
     i32 variable_id = read_int(&parser);
     if (variable_id) {
-      printf(is_negated ? "-" : " ");
-      printf("%-2d ", variable_id);
+      debug(is_negated ? "-" : " ");
+      debug("%-3d ", variable_id);
 
       add_variable(problem, clause_id, variable_id, is_negated);
-      is_empty_clause = false;
-    } else {
-      if (is_empty_clause) panic("Empty clause at line %d\n", parser.line);
+      ++variable_count_in_clause;
 
-      printf("\n");
+      one_variable_id    = variable_id;
+      one_variable_value = !is_negated;
+    } else {
+      if (variable_count_in_clause == 0) panic("Empty clause at line %d\n", parser.line);
+
+      if (variable_count_in_clause == 1) {
+        set_variable(problem, one_variable_id, one_variable_value);
+        debug("\t\t// Optimize 1-literal x%d to %d", one_variable_id, one_variable_value);
+      }
+      debug("\n");
       ++clause_id;
-      is_empty_clause = true;
+      debug("clause%d: ", clause_id);
+      variable_count_in_clause = 0;
     }
 
     eat_whitespace(&parser);
   }
 
-  if (!is_empty_clause) {
-    printf("\n");
+  if (variable_count_in_clause > 0) {
+    debug("\n");
     ++clause_id;
   }
 
-  // if (clause_count != clause_id) panic("Clause count of %d does not match actual %d\n", clause_count, clause_id);
+  if (clause_count != clause_id) panic("Clause count of %d does not match actual %d\n", clause_count, clause_id);
 
   return ok;
 }
@@ -142,11 +155,15 @@ Result solve(cstr input_path) {
   if (parse(&problem, input_path)) return err;
 
   // TODO: delete
-  dump_problem(&problem);
+  // dump_problem(&problem);
 
-  // TODO: evaluate the generated solver problem structure thingy
-
-  return ok;
+  if (dpll_solve(&problem) == SAT) {
+    // print_sat_solution(&problem);
+    return ok;
+  } else {
+    printf("UNSAT\n");
+    return err;
+  }
 }
 
 } // namespace sat

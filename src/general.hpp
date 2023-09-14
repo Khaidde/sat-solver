@@ -18,7 +18,7 @@
 #if defined(NDEBUG)
 #define DEBUG 0
 #else
-#define DEBUG 1
+#define DEBUG 0
 #endif
 
 static_assert(sizeof(intptr_t) == 8, "Compilation only supported on 64-bit machine");
@@ -44,7 +44,6 @@ enum Result : i32 { ok = 0, err = 1 };
 
 inline void debug(cstr msg, ...) {
 #if DEBUG
-  fprintf(stderr, "debug: ");
   va_list args;
   va_start(args, msg);
   vfprintf(stdout, msg, args);
