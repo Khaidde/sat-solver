@@ -9,15 +9,35 @@ i32 words_per_clause(Problem *problem) { return ((problem->variable_count - 1) >
 
 u64 get_word_mask(i32 variable_id) { return 1ul << (variable_id & 63); }
 
-Problem init_problem(i32 variable_count, i32 clause_count) {
+Problem init_problem(i32 variable_count, i32 clause_count, SplittingHeuristic splitting_heuristic) {
   assert(variable_count > 0 && clause_count > 0);
 
-  // Add "varible x0" which is implicitly assigned a true value
+  // Add "varible x0" which will be implicitly assigned a true value
   ++variable_count;
 
   Problem problem;
-  problem.variable_count = variable_count;
-  problem.clause_count   = clause_count;
+  problem.variable_count      = variable_count;
+  problem.clause_count        = clause_count;
+  problem.splitting_heuristic = splitting_heuristic;
+
+  problem.priority_pointer = 0;
+  switch (splitting_heuristic) {
+  case RANDOM: problem.variable_priority = nullptr; break;
+  case TWO_CLAUSE:
+    problem.variable_priority = CAllocator::construct<i32>(variable_count);
+
+    problem.clause_literal_count = CAllocator::construct<i32>(clause_count);
+    memset(problem.clause_literal_count, 0, u32(clause_count) * sizeof(i32));
+    break;
+  case POLARITY:
+    problem.variable_priority = CAllocator::construct<i32>(variable_count);
+
+    problem.polarity_info.false_count = CAllocator::construct<i32>(variable_count);
+    problem.polarity_info.true_count  = CAllocator::construct<i32>(variable_count);
+    memset(problem.polarity_info.false_count, 0, u32(variable_count) * sizeof(i32));
+    memset(problem.polarity_info.true_count, 0, u32(variable_count) * sizeof(i32));
+    break;
+  }
 
   i32 clause_block_size = words_per_clause(&problem) * clause_count;
 
@@ -96,12 +116,22 @@ void add_variable(Problem *problem, i32 clause_id, i32 variable_id, bool negate)
   assert(clause_id >= 0 && clause_id < problem->clause_count);
   assert(variable_id > 0 && variable_id < problem->variable_count);
 
+  switch (problem->splitting_heuristic) {
+  case TWO_CLAUSE: ++problem->clause_literal_count[clause_id]; break;
+  case POLARITY:
+    if (negate) {
+      ++problem->polarity_info.false_count[variable_id];
+    } else {
+      ++problem->polarity_info.true_count[variable_id];
+    }
+    break;
+  default: break;
+  }
+
   i32 index = (clause_id * words_per_clause(problem)) + (variable_id >> 6);
 
   if (problem->clauses[index] & get_word_mask(variable_id)) {
     // Case where we encountered something like "(~x v x)"
-
-    // problem->clauses[index] |= ~get_variable_mask(variable_id);
     assert(!"TODO: perform trick with setting variable 0 when we get something like (~x v x)");
     return;
   }
@@ -155,13 +185,34 @@ void decision_flip(i32 *decision) { *decision = *decision ^ (3 << 30); }
 i32 find_variable(Problem *problem) {
   i32 variable_id = -1;
 
-  // TODO: use correct heuristics (random, VSIDS, etc.)
-  for (i32 i = 0; i < words_per_clause(problem); ++i) {
-    if (problem->unassigned[i]) {
-      variable_id = (i << 6) | __builtin_ctzll(problem->unassigned[i]);
-      break;
-    }
+  // Check if all variables have been assigned and if so, return -1
+  i32 i = 0;
+  for (; i < words_per_clause(problem); ++i) {
+    if (problem->unassigned[i]) break;
   }
+  if (i == words_per_clause(problem)) return -1;
+
+  switch (problem->splitting_heuristic) {
+  case RANDOM: {
+    do {
+      variable_id = fast_random(problem->variable_count - 1) + 1;
+    } while (is_assigned(problem, variable_id));
+
+    break;
+  }
+  case TWO_CLAUSE:
+  case POLARITY:
+    for (i32 i = 0; i < problem->variable_count; ++i) {
+      if (!is_assigned(problem, problem->variable_priority[i])) {
+        return problem->variable_priority[i];
+      }
+    }
+
+    break;
+  }
+
+  assert(variable_id > 0);
+  assert(!is_assigned(problem, variable_id));
 
   return variable_id;
 }
@@ -246,14 +297,7 @@ UnitPropagateResult unit_propagate(Problem *problem) {
   return NO_CONFLICT;
 }
 
-bool resolve_conflict(Problem *problem) {
-  (void)problem;
-  return false;
-}
-
 ProblemResult dpll_solve(Problem *problem) {
-  // TODO: perform pre-processing stage
-
   // Check one-literal invariant
 #if DEBUG
   for (i32 i = 0; i < problem->clause_count; ++i) {
@@ -282,6 +326,94 @@ ProblemResult dpll_solve(Problem *problem) {
   }
 #endif
 
+  // Initialization for heuristics
+  i32 *variable_occurences = CAllocator::construct<i32>(problem->variable_count);
+  switch (problem->splitting_heuristic) {
+  case RANDOM: break;
+  case TWO_CLAUSE: {
+    for (i32 i = 0; i < problem->variable_count; ++i) {
+      variable_occurences[i] = 0;
+    }
+
+    // Count number of two-clauses in which a literal is contained in and update variable_occurrences
+    for (i32 i = 0; i < problem->clause_count; ++i) {
+      if (problem->clause_literal_count[i] == 2) {
+        for (i32 k = 0; k < words_per_clause(problem); ++k) {
+          u64 clause_word = problem->clauses[(i * words_per_clause(problem)) + k];
+          while (clause_word) {
+            i32 offset      = __builtin_ctzll(clause_word);
+            i32 variable_id = (k << 6) | offset;
+
+            ++variable_occurences[variable_id];
+
+            clause_word &= ~(1ul << offset);
+          }
+        }
+      }
+    }
+
+    break;
+  }
+  case POLARITY: {
+    // Use maximum of true_count or false_count to update variable_occurences
+    for (i32 i = 0; i < problem->variable_count; ++i) {
+      if (problem->polarity_info.true_count[i] > problem->polarity_info.false_count[i]) {
+        variable_occurences[i] = problem->polarity_info.true_count[i];
+      } else {
+        variable_occurences[i] = problem->polarity_info.false_count[i];
+      }
+    }
+    break;
+  }
+  }
+
+  switch (problem->splitting_heuristic) {
+  case RANDOM: break;
+  case TWO_CLAUSE:
+  case POLARITY: {
+    // Insertion sort the variables based on maximum occurences
+    problem->variable_priority[0] = 0;
+    for (i32 i = 1; i < problem->variable_count; ++i) {
+      problem->variable_priority[i] = i;
+
+      i32 k = i;
+      while (k >= 1) {
+        if (variable_occurences[problem->variable_priority[k - 1]] > variable_occurences[problem->variable_priority[k]])
+          break;
+
+        i32 temp                          = problem->variable_priority[k - 1];
+        problem->variable_priority[k - 1] = problem->variable_priority[k];
+        problem->variable_priority[k]     = temp;
+
+        --k;
+      }
+    }
+
+#if DEBUG
+    // Verify that all variables are in the priority list
+    u64 *include_map = CAllocator::construct<u64>(words_per_clause(problem));
+    for (i32 i = 0; i < words_per_clause(problem); ++i) {
+      include_map[i] = (u64)-1;
+      if (i + 1 == words_per_clause(problem)) include_map[i] &= (get_word_mask(problem->variable_count) - 1);
+    }
+    for (i32 i = 0; i < problem->variable_count; ++i) {
+      assert(include_map[problem->variable_priority[i] >> 6] & get_word_mask(problem->variable_priority[i]));
+      include_map[problem->variable_priority[i] >> 6] &= ~get_word_mask(problem->variable_priority[i]);
+    }
+    for (i32 i = 0; i < words_per_clause(problem); ++i) {
+      assert(include_map[i] == 0);
+    }
+
+    // Verify priority list is sorted
+    for (i32 i = 1; i < problem->variable_count; ++i) {
+      i32 left  = variable_occurences[problem->variable_priority[i - 1]];
+      i32 right = variable_occurences[problem->variable_priority[i]];
+      assert(left >= right);
+    }
+#endif
+  } break;
+  }
+
   // Build variable_to_clause list for simple watchlist
   for (i32 i = 0; i < problem->clause_count; ++i) {
     for (i32 k = 0; k < words_per_clause(problem); ++k) {
@@ -304,31 +436,16 @@ ProblemResult dpll_solve(Problem *problem) {
     }
   }
 
-  // TODO: delete
-  /*
-  for (i32 i = 0; i < problem->variable_count; ++i) {
-    auto *current = problem->variable_to_clause[i];
-    if (current) {
-      debug("x%d: ", i);
-      while (current) {
-        if (current->clause_id & (1 << 31)) {
-          debug("~%d -> ", current->clause_id & 0x7FFFFFFF);
-        } else {
-          debug("%d -> ", current->clause_id);
-        }
-        current = current->next;
-      }
-      debug("\n");
-    }
-  }
-  */
-
+  // Main iteration loop
   for (;;) {
     i32 variable_id = find_variable(problem);
     if (variable_id == -1) break;
 
-    // TODO: heuristic to decide whether to set variable to TRUE or FALSE
-    bool value = true;
+    bool value;
+    switch (problem->splitting_heuristic) {
+    case RANDOM: value = fast_random(2) == 1; break;
+    default: value = true; break;
+    }
 
     set_variable(problem, variable_id, value);
 
@@ -366,14 +483,6 @@ ProblemResult dpll_solve(Problem *problem) {
         debug(" %016lx", problem->unassigned[i]);
       }
       debug("\n");
-
-      /* TODO: delete
-      printf("stack: ");
-      for (i32 i = 0; i < problem->decision_stack_size; ++i) {
-        printf("%d ", decision_get_variable_id(problem->decision_stack[i]));
-      }
-      printf("\n");
-      */
     }
   }
 
@@ -405,8 +514,7 @@ ProblemResult dpll_solve(Problem *problem) {
     }
 
     if (!result) {
-      debug("Verification failed at clause%d\n", i);
-      assert(false);
+      panic("Verification failed at clause%d\n", i);
     }
   }
   debug("============================\n");
@@ -417,7 +525,7 @@ ProblemResult dpll_solve(Problem *problem) {
 }
 
 void print_sat_solution(Problem *problem) {
-  for (i32 i = 0; i < problem->variable_count; ++i) {
+  for (i32 i = 1; i < problem->variable_count; ++i) {
     bool value = problem->assigned_values[i >> 6] & get_word_mask(i);
     printf("x%d = %d\n", i, value);
   }

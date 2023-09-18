@@ -18,7 +18,7 @@
 #if defined(NDEBUG)
 #define DEBUG 0
 #else
-#define DEBUG 0
+#define DEBUG 1
 #endif
 
 static_assert(sizeof(intptr_t) == 8, "Compilation only supported on 64-bit machine");
@@ -69,6 +69,12 @@ inline void error(cstr msg, ...) {
   vfprintf(stderr, msg, args);
   va_end(args);
   abort();
+}
+
+inline i32 fast_random(i32 upper) {
+  static u32 seed = 0x765;
+  seed            = 98612337607 * seed + 19827359879823;
+  return upper * ((f64)seed / (1ull << 32));
 }
 
 #if DEBUG

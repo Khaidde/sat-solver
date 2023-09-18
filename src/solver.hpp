@@ -10,7 +10,30 @@ struct SimpleWatchlistNode {
   SimpleWatchlistNode *next;
 };
 
+enum SplittingHeuristic {
+  RANDOM,
+  TWO_CLAUSE,
+  POLARITY,
+};
+
 struct Problem {
+  SplittingHeuristic splitting_heuristic;
+  i32 *variable_priority;
+  i32 priority_pointer;
+
+  struct PolarityInfo {
+    i32 *false_count;
+    i32 *true_count;
+  };
+
+  union {
+    // For two-clause counting
+    i32 *clause_literal_count;
+
+    // For polarity checking
+    PolarityInfo polarity_info;
+  };
+
   i32 variable_count;
   i32 clause_count;
 
@@ -30,7 +53,7 @@ struct Problem {
   SimpleWatchlistNode **variable_to_clause;
 };
 
-Problem init_problem(i32 variable_count, i32 clause_count);
+Problem init_problem(i32 variable_count, i32 clause_count, SplittingHeuristic splitting_heuristic);
 
 void add_variable(Problem *problem, i32 clause_id, i32 variable_id, bool negate);
 

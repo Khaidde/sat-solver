@@ -45,7 +45,7 @@ i32 read_int(Parser *parser) {
   return number;
 }
 
-Result parse(Problem *problem, cstr input_path) {
+Result parse(Problem *problem, cstr input_path, SplittingHeuristic splitting_heuristic) {
   Parser parser;
   parser.line = 1;
   parser.idx  = 0;
@@ -94,7 +94,7 @@ Result parse(Problem *problem, cstr input_path) {
   if (variable_count <= 0) panic("Problem must have more than 0 variables\n");
   if (clause_count <= 0) panic("Problem must have more than 0 clauses\n");
 
-  *problem = init_problem(variable_count, clause_count);
+  *problem = init_problem(variable_count, clause_count, splitting_heuristic);
   printf("CNF Problem: %d variables, %d clauses\n", variable_count, clause_count);
 
   i32 variable_count_in_clause = 0;
@@ -132,6 +132,7 @@ Result parse(Problem *problem, cstr input_path) {
         debug("\t\t// Optimize 1-literal x%d to %d", one_variable_id, one_variable_value);
       }
       debug("\n");
+
       ++clause_id;
       debug("clause%d: ", clause_id);
       variable_count_in_clause = 0;
@@ -150,15 +151,20 @@ Result parse(Problem *problem, cstr input_path) {
   return ok;
 }
 
-Result solve(cstr input_path) {
-  Problem problem;
-  if (parse(&problem, input_path)) return err;
+Result solve(cstr input_path, char splitting_heuristic_arg) {
+  SplittingHeuristic splitting_heuristic;
+  switch (splitting_heuristic_arg) {
+  case 'r': splitting_heuristic = RANDOM; break;
+  case 't': splitting_heuristic = TWO_CLAUSE; break;
+  case 'p': splitting_heuristic = POLARITY; break;
+  default: panic("Unimplemented heuristic argument: %c\n", splitting_heuristic_arg);
+  }
 
-  // TODO: delete
-  // dump_problem(&problem);
+  Problem problem;
+  if (parse(&problem, input_path, splitting_heuristic)) return err;
 
   if (dpll_solve(&problem) == SAT) {
-    // print_sat_solution(&problem);
+    print_sat_solution(&problem);
     return ok;
   } else {
     printf("UNSAT\n");
@@ -169,12 +175,12 @@ Result solve(cstr input_path) {
 } // namespace sat
 
 i32 main(i32 argc, char **argv) {
-  if (argc != 2) {
-    error("Expected usage: sat [input].cnf\n");
+  if (argc != 3) {
+    error("Expected usage: sat [r|t|p] [input].cnf\n");
     return err;
   }
 
-  if (sat::solve(argv[1])) return err;
+  if (sat::solve(argv[2], argv[1][0])) return err;
 
   return ok;
 }
