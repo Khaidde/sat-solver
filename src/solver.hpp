@@ -34,6 +34,8 @@ struct Problem {
     PolarityInfo polarity_info;
   };
 
+  i32 split_count;
+
   i32 variable_count;
   i32 clause_count;
 

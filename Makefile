@@ -34,6 +34,10 @@ generate_riddle:
 	mkdir -p $(BUILD_DIR)/cnf
 	$(BIN_DIR)/generate_riddle $(BUILD_DIR)/cnf/riddle.cnf
 
+build_test_gen:
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) ./test_gen/test_gen.cpp -o $(BIN_DIR)/test_gen
+
 $(EXEC): $(OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@

@@ -164,7 +164,8 @@ Result solve(cstr input_path, char splitting_heuristic_arg) {
   if (parse(&problem, input_path, splitting_heuristic)) return err;
 
   if (dpll_solve(&problem) == SAT) {
-    print_sat_solution(&problem);
+    printf("split_count: %d\n", problem.split_count);
+    // print_sat_solution(&problem);
     return ok;
   } else {
     printf("UNSAT\n");

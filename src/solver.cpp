@@ -16,6 +16,7 @@ Problem init_problem(i32 variable_count, i32 clause_count, SplittingHeuristic sp
   ++variable_count;
 
   Problem problem;
+  problem.split_count         = 0;
   problem.variable_count      = variable_count;
   problem.clause_count        = clause_count;
   problem.splitting_heuristic = splitting_heuristic;
@@ -440,6 +441,8 @@ ProblemResult dpll_solve(Problem *problem) {
   for (;;) {
     i32 variable_id = find_variable(problem);
     if (variable_id == -1) break;
+
+    ++problem->split_count;
 
     bool value;
     switch (problem->splitting_heuristic) {
