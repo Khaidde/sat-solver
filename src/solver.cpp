@@ -447,6 +447,13 @@ ProblemResult dpll_solve(Problem *problem) {
     bool value;
     switch (problem->splitting_heuristic) {
     case RANDOM: value = fast_random(2) == 1; break;
+    case POLARITY:
+      if (problem->polarity_info.true_count[variable_id] > problem->polarity_info.false_count[variable_id]) {
+        value = true;
+      } else {
+        value = false;
+      }
+      break;
     default: value = true; break;
     }
 

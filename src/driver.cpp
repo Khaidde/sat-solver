@@ -164,10 +164,11 @@ Result solve(cstr input_path, char splitting_heuristic_arg) {
   if (parse(&problem, input_path, splitting_heuristic)) return err;
 
   if (dpll_solve(&problem) == SAT) {
-    printf("split_count: %d\n", problem.split_count);
-    // print_sat_solution(&problem);
+    fprintf(stderr, "%d", problem.split_count);
+    // TODO: uncomment print_sat_solution(&problem);
     return ok;
   } else {
+    fprintf(stderr, "%d", problem.split_count);
     printf("UNSAT\n");
     return err;
   }

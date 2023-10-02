@@ -37,6 +37,8 @@ generate_riddle:
 build_test_gen:
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) ./test_gen/test_gen.cpp -o $(BIN_DIR)/test_gen
+	rm -rf ./test_gen/suite
+	$(BIN_DIR)/test_gen
 
 $(EXEC): $(OBJS)
 	@mkdir -p $(dir $@)
